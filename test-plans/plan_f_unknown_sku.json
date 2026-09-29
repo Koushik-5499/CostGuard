@@ -1,0 +1,23 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "planned_values": {},
+  "resource_changes": [
+    {
+      "address": "azurerm_linux_virtual_machine.unknown",
+      "type": "azurerm_linux_virtual_machine",
+      "name": "unknown",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "unknown-vm",
+          "location": "eastus",
+          "size": "Custom_Unknown_SKU"
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

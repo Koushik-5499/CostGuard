@@ -1,0 +1,54 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "planned_values": {},
+  "resource_changes": [
+    {
+      "address": "azurerm_linux_virtual_machine.app",
+      "type": "azurerm_linux_virtual_machine",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "app-vm",
+          "location": "East US",
+          "size": "Standard_B1s",
+          "admin_username": "adminuser",
+          "tags": {
+            "Environment": "dev",
+            "Team": "platform"
+          }
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "azurerm_managed_disk.data",
+      "type": "azurerm_managed_disk",
+      "name": "data",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "data-disk",
+          "location": "East US",
+          "storage_account_type": "Premium_LRS",
+          "disk_size_gb": 128,
+          "create_option": "Empty",
+          "tags": {
+            "Environment": "dev",
+            "Team": "platform"
+          }
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

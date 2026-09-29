@@ -1,0 +1,57 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "planned_values": {},
+  "resource_changes": [
+    {
+      "address": "azurerm_linux_virtual_machine.web",
+      "type": "azurerm_linux_virtual_machine",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "name": "web-vm",
+          "location": "eastus",
+          "size": "Standard_B2s",
+          "admin_username": "adminuser",
+          "tags": {
+            "Environment": "prod"
+          }
+        },
+        "after": {
+          "name": "web-vm",
+          "location": "eastus",
+          "size": "Standard_D2s_v3",
+          "admin_username": "adminuser",
+          "tags": {
+            "Environment": "prod"
+          }
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "azurerm_linux_virtual_machine.old",
+      "type": "azurerm_linux_virtual_machine",
+      "name": "old",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["delete"],
+        "before": {
+          "name": "old-vm",
+          "location": "East US",
+          "size": "Standard_B1s",
+          "admin_username": "adminuser",
+          "tags": {}
+        },
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

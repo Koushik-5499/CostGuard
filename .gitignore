@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+pricing_cache.db
+results/
+tfplan.binary
+api_results.txt
+check_api.py

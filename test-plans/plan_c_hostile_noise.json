@@ -1,0 +1,112 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "planned_values": {},
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.main",
+      "type": "azurerm_resource_group",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "rg-main", "location": "East US" }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_resource_group.staging",
+      "type": "azurerm_resource_group",
+      "name": "staging",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "rg-staging", "location": "West US" }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_virtual_network.vnet1",
+      "type": "azurerm_virtual_network",
+      "name": "vnet1",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "vnet1", "location": "East US", "address_space": ["10.0.0.0/16"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_virtual_network.vnet2",
+      "type": "azurerm_virtual_network",
+      "name": "vnet2",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "vnet2", "location": "West US", "address_space": ["10.1.0.0/16"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_subnet.sub1",
+      "type": "azurerm_subnet",
+      "name": "sub1",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "subnet1", "address_prefixes": ["10.0.1.0/24"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_subnet.sub2",
+      "type": "azurerm_subnet",
+      "name": "sub2",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "subnet2", "address_prefixes": ["10.0.2.0/24"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_subnet.sub3",
+      "type": "azurerm_subnet",
+      "name": "sub3",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "subnet3", "address_prefixes": ["10.0.3.0/24"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_network_security_group.nsg1",
+      "type": "azurerm_network_security_group",
+      "name": "nsg1",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "nsg1", "location": "East US" }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_network_security_group.nsg2",
+      "type": "azurerm_network_security_group",
+      "name": "nsg2",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "nsg2", "location": "East US" }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_network_security_group.nsg3",
+      "type": "azurerm_network_security_group",
+      "name": "nsg3",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "nsg3", "location": "West US" }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_resource_group.dev",
+      "type": "azurerm_resource_group",
+      "name": "dev",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "rg-dev", "location": "East US" }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_virtual_network.vnet3",
+      "type": "azurerm_virtual_network",
+      "name": "vnet3",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "vnet3", "location": "East US", "address_space": ["10.2.0.0/16"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_subnet.sub4",
+      "type": "azurerm_subnet",
+      "name": "sub4",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "subnet4", "address_prefixes": ["10.2.1.0/24"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_subnet.sub5",
+      "type": "azurerm_subnet",
+      "name": "sub5",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "subnet5", "address_prefixes": ["10.2.2.0/24"] }, "after_unknown": {} }
+    },
+    {
+      "address": "azurerm_network_security_group.nsg4",
+      "type": "azurerm_network_security_group",
+      "name": "nsg4",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": { "name": "nsg4", "location": "East US" }, "after_unknown": {} }
+    }
+  ]
+}

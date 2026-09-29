@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "costguard"
+version = "1.0.0"
+description = "Azure Infrastructure Cost Impact Analyzer for Terraform Plans"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+    "rich>=13.0",
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+costguard = "costguard.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["costguard*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
