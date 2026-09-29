@@ -1,18 +1,18 @@
 # CostGuard Implementation Report
 
 ## 1) What We Built
-CostGuard is a strict Python CLI designed to intercept Terraform plan JSON files and calculate monthly cost deltas natively. It successfully queries the live Azure Retail Prices API dynamically using HTTP filtering (excluding Spot and Windows meters accurately without requiring user authentication). It implements a local SQLite read/write-through cache, successfully cutting duplicate execution API lookups down to 0 ms. The core engine parses create, delete, update, and replace configurations smoothly.
+CostGuard is a Python CLI designed to intercept Terraform plan JSON files and calculate exact monthly cost deltas natively. It queries the live Azure Retail Prices API for dynamic pricing using HTTP filtering (Spot/Windows exclusions) without requiring user authentication. It implements a local SQLite read/write-through cache. The core extraction engine parses create, delete, update, and replace configurations. Missing or hostile resources fallback without traceback crashes.
 
 ## 2) Detection & Extraction Logic
-- **Parsing Engine:** Maps `resource_changes[]` to identify operations (`create`, `delete`, `update`, `replace` — where replacement is handled by recognizing `["delete", "create"]` actions in our code, which has been unit tested successfully).
+- **Parsing Engine:** Maps `resource_changes[]` to identify operations (`create`, `delete`, `update`, `replace` — where replacement is handled by recognizing `["delete", "create"]` actions).
 - **VM Mapping:** Targets `azurerm_linux_virtual_machine`, `azurerm_windows_virtual_machine`. Evaluates the correct `size` and region (normalization strips spaces to lowercase, e.g., `eastus`).
-- **Disk Mapping:** Targets `azurerm_managed_disk`. Since Azure natives price disks by size tiers, the code maps sizes to standard tier IDs (e.g., `< 4GB` = `P1`, `4-128GB` = `P10`) natively using `storage_account_type`.
+- **Disk Mapping:** Targets `azurerm_managed_disk`. The code maps sizes to standard tier IDs (e.g., `< 4GB` = `P1`, `4-128GB` = `P10`) natively using `storage_account_type`.
 
 ## 3) Methods Table
 
 | Feature | Implementation Strategy |
 |:---|:---|
-| **Pricing Engine** | Live query to `https://prices.azure.com/api/retail/prices` using precise OData `$filter` syntax. Pagination is handled with a `while url:` loop via `NextPageLink`. Request timeout set to 10s securely. |
+| **Pricing Engine** | Live query via `pricing.py` to `https://prices.azure.com/api/retail/prices` using precise OData `$filter` syntax. Pagination is handled with a `while url:` loop via `NextPageLink`. Request timeout set to 10s securely. |
 | **Caching Strategy** | Local `pricing_cache.db` (SQLite). Schema follows `(sku, region, currency)` PRIMARY KEY, tracking `hourly_rate` (also holds flat rates for monthly disks) and `cached_at`. |
 | **Spot & Low Priority**| `_filter_vm_items()` parses returned payloads. "Low priority" is discarded entirely. "Spot" is filtered out unless `priority="Spot"` is explicitly requested. |
 | **OS Meter Filtering** | Linux VM requests natively exclude meter products containing the string "Windows". |
@@ -119,11 +119,11 @@ Error: Invalid JSON input: Expecting ',' delimiter: line 10 column 7 (char 248)
 **Exit code:** `2`
 
 
-## 5) Limitations & Next Steps
-- **Tag Grouping:** Tag grouping is NOT currently implemented as a separate core capability in the terminal UI table. The tags are extracted technically into the underlying objects (and outputted perfectly to `--json`), but the CLI interface does not visually aggregate or group items natively by tag.
-- **Disk Mappings:** Managed disk processing natively supports mapping strictly against the Premium SSD classes effectively right now. It does not actively encompass automated logic for Standard HDD, Standard SSD, or Ultra disk tiers.
+## 5) Limitations
+- **Tag Grouping:** Terminal tag aggregation is not implemented. Tags are extracted into the object model and `--json` structural support exists, but it remains a partial capability as visual aggregation is not supported.
+- **Disk Mappings:** Managed disk processing natively supports Premium SSD classes. It does not encompass automated logic for Standard HDD, Standard SSD, or Ultra disk tiers.
 - **Single Cloud:** The application works entirely against Azure Retail API constraints securely; multi-cloud compatibility is not integrated.
-- **Egress:** Traffic and explicit networking volume usage metrics are skipped explicitly natively since Terraform rarely plans egress dimensions accurately.
+- **Egress:** Traffic and explicit networking volume usage metrics are skipped.
 
 ## 6) How to Run It
 
