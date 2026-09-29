@@ -10,18 +10,18 @@ def test_filter_vm_items():
     ]
 
     # Standard Linux VM (is_windows=False, is_spot=False)
-    filtered = PricingClient._filter_vm_items(items, is_windows=False, is_spot=False)
+    filtered = PricingClient._filter_vm_items(items, sku="fake", is_windows=False, is_spot=False)
     assert len(filtered) == 1
     assert filtered[0]["meterName"] == "D2s v3"
     assert filtered[0]["productName"] == "Virtual Machines DSv3 Series"
 
     # Spot Linux VM (is_windows=False, is_spot=True)
-    filtered_spot = PricingClient._filter_vm_items(items, is_windows=False, is_spot=True)
-    assert len(filtered_spot) == 2 # Will include Spot and regular, but our code picks [0] later
+    filtered_spot = PricingClient._filter_vm_items(items, sku="fake", is_windows=False, is_spot=True)
+    assert len(filtered_spot) == 1 # Now it exclusively picks Spot!
     assert filtered_spot[0]["meterName"] == "D2s v3 Spot"
 
     # Standard Windows VM (is_windows=True, is_spot=False)
-    filtered_win = PricingClient._filter_vm_items(items, is_windows=True, is_spot=False)
+    filtered_win = PricingClient._filter_vm_items(items, sku="fake", is_windows=True, is_spot=False)
     assert len(filtered_win) == 1
     assert filtered_win[0]["meterName"] == "D2s v3"
     assert filtered_win[0]["productName"] == "Virtual Machines DSv3 Series Windows"

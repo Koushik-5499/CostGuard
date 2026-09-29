@@ -57,13 +57,17 @@ class PricingClient:
 
         Filters out Spot, Low Priority, and wrong OS meters.
         """
-        cache_key = (sku, region, self.currency)
+        variant_key = f"{sku}|spot" if is_spot else (f"{sku}|windows" if is_windows else f"{sku}|linux")
+        cache_key = (variant_key, region, self.currency)
+        
         # Check session cache first (handles multiple resources with same SKU)
         if cache_key in self._session_cache:
+            if self._session_cache[cache_key] is not None:
+                self.cache.stats.hits += 1
             return self._session_cache[cache_key]
 
         # Check SQLite cache
-        cached_rate = self.cache.get(sku, region, self.currency)
+        cached_rate = self.cache.get(variant_key, region, self.currency)
         if cached_rate is not None:
             result = PriceResult(
                 rate=Decimal(str(cached_rate)),
@@ -75,26 +79,26 @@ class PricingClient:
 
         # Cache miss — query the API
         self.cache.stats.api_lookups += 1
+        
+        safe_sku = sku.replace("'", "''")
+        safe_region = region.replace("'", "''")
+        
         filter_str = (
             f"serviceName eq 'Virtual Machines' "
-            f"and armRegionName eq '{region}' "
-            f"and armSkuName eq '{sku}' "
+            f"and armRegionName eq '{safe_region}' "
+            f"and armSkuName eq '{safe_sku}' "
             f"and priceType eq 'Consumption'"
         )
 
         try:
             items = self._query_api(filter_str)
         except Exception as e:
-            print(
-                f"[WARN] Network unavailable; defaulting SKU '{sku}' to $0.00.",
-                file=sys.stderr,
-            )
-            result = PriceResult(rate=Decimal("0"), is_monthly=False, sku_label=sku)
-            self._session_cache[cache_key] = result
-            return result
+            print(f"[WARN] Resource '{sku}' skipped: {e}", file=sys.stderr)
+            self._session_cache[cache_key] = None
+            return None
 
         # Filter items
-        matched = self._filter_vm_items(items, is_windows=is_windows, is_spot=is_spot)
+        matched = self._filter_vm_items(items, sku, is_windows=is_windows, is_spot=is_spot)
 
         if not matched:
             print(
@@ -104,13 +108,19 @@ class PricingClient:
             self._session_cache[cache_key] = None
             return None
 
-        # Pick the best match (first remaining after filtering)
+        # Pick the best match
         item = matched[0]
+        
+        if item.get("currencyCode") != self.currency:
+            print(f"[WARN] Resource '{sku}' skipped: API returned wrong currency ({item.get('currencyCode')} != {self.currency})", file=sys.stderr)
+            self._session_cache[cache_key] = None
+            return None
+
         rate = Decimal(str(item["retailPrice"]))
         is_monthly = "month" in item.get("unitOfMeasure", "").lower()
 
         # Cache it
-        self.cache.put(sku, region, float(rate), self.currency)
+        self.cache.put(variant_key, region, float(rate), self.currency)
 
         result = PriceResult(
             rate=rate,
@@ -141,13 +151,17 @@ class PricingClient:
         if not product_name:
             return None
 
-        # Cache key for disks uses the tier as SKU
-        cache_key = (tier, region, self.currency)
+        # Cache key for disks uses the tier + redundancy as variant key
+        variant_key = f"{tier}|{redundancy}"
+        cache_key = (variant_key, region, self.currency)
+        
         if cache_key in self._session_cache:
+            if self._session_cache[cache_key] is not None:
+                self.cache.stats.hits += 1
             return self._session_cache[cache_key]
 
         # Check SQLite cache
-        cached_rate = self.cache.get(tier, region, self.currency)
+        cached_rate = self.cache.get(variant_key, region, self.currency)
         if cached_rate is not None:
             from costguard.disks import format_disk_label
             result = PriceResult(
@@ -160,23 +174,23 @@ class PricingClient:
 
         # Cache miss — query the API
         self.cache.stats.api_lookups += 1
+        
+        safe_region = region.replace("'", "''")
+        safe_product = product_name.replace("'", "''")
+        
         filter_str = (
             f"serviceName eq 'Storage' "
-            f"and armRegionName eq '{region}' "
+            f"and armRegionName eq '{safe_region}' "
             f"and priceType eq 'Consumption' "
-            f"and productName eq '{product_name}'"
+            f"and productName eq '{safe_product}'"
         )
 
         try:
             items = self._query_api(filter_str)
         except Exception as e:
-            print(
-                f"[WARN] Network unavailable; defaulting disk '{tier}' to $0.00.",
-                file=sys.stderr,
-            )
-            result = PriceResult(rate=Decimal("0"), is_monthly=True, sku_label=tier)
-            self._session_cache[cache_key] = result
-            return result
+            print(f"[WARN] Resource '{tier}' skipped: {e}", file=sys.stderr)
+            self._session_cache[cache_key] = None
+            return None
 
         # Find the matching tier: look for the "P10 LRS Disk" meterName pattern
         expected_meter = get_disk_meter_name(tier, redundancy)
@@ -194,10 +208,16 @@ class PricingClient:
             return None
 
         item = matched[0]
+        
+        if item.get("currencyCode") != self.currency:
+            print(f"[WARN] Resource '{tier}' skipped: API returned wrong currency ({item.get('currencyCode')} != {self.currency})", file=sys.stderr)
+            self._session_cache[cache_key] = None
+            return None
+            
         rate = Decimal(str(item["retailPrice"]))
 
         # Cache it
-        self.cache.put(tier, region, float(rate), self.currency)
+        self.cache.put(variant_key, region, float(rate), self.currency)
 
         from costguard.disks import format_disk_label
         result = PriceResult(
@@ -212,35 +232,50 @@ class PricingClient:
 
     def _query_api(self, filter_str: str) -> list[dict]:
         """Query the Azure Retail Prices API with pagination support."""
+        import urllib.error
+        import time
         params = {"$filter": filter_str}
         if self.currency != "USD":
-            params["currencyCode"] = self.currency
+            # Pass as 'EUR' with literal single quotes inside the query value string
+            params["currencyCode"] = f"'{self.currency}'"
 
-        url = API_BASE + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+        url = API_BASE + "?" + urllib.parse.urlencode(params, safe="'")
         all_items = []
+        retries = 0
 
         while url:
             req = urllib.request.Request(url)
             req.add_header("Accept", "application/json")
-            resp = urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT)
-            data = json.loads(resp.read().decode("utf-8"))
-            all_items.extend(data.get("Items", []))
-            url = data.get("NextPageLink")
+            try:
+                resp = urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT)
+                try:
+                    data = json.loads(resp.read().decode("utf-8"))
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"JSON decode error: {e}")
+                
+                all_items.extend(data.get("Items", []))
+                url = data.get("NextPageLink")
+                retries = 0 # reset on success
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    if retries >= 3:
+                        raise ValueError(f"HTTP 429: Rate limit exceeded after {retries} retries")
+                    retry_after = e.headers.get("Retry-After")
+                    wait_time = int(retry_after) if retry_after and retry_after.isdigit() else (2 ** retries)
+                    time.sleep(wait_time)
+                    retries += 1
+                    continue
+                raise ValueError(f"HTTP {e.code}: {e.reason}")
+            except urllib.error.URLError as e:
+                raise ConnectionError(f"Network unavailable: {e.reason}")
 
         return all_items
 
     @staticmethod
     def _filter_vm_items(
-        items: list[dict], is_windows: bool = False, is_spot: bool = False
+        items: list[dict], sku: str, is_windows: bool = False, is_spot: bool = False
     ) -> list[dict]:
-        """Filter VM pricing items to find the correct meter.
-
-        Rules:
-        - Reject Spot meters (meterName contains "Spot") unless is_spot is True.
-        - Reject Low Priority meters (meterName contains "Low Priority") always.
-        - For Linux VMs: reject Windows meters (productName contains "Windows").
-        - For Windows VMs: only keep Windows meters.
-        """
+        """Filter VM pricing items to find the correct meter."""
         filtered = []
         for item in items:
             meter_name = item.get("meterName", "")
@@ -248,24 +283,39 @@ class PricingClient:
             meter_lower = meter_name.lower()
             product_lower = product_name.lower()
 
-            # Always reject Low Priority
             if "low priority" in meter_lower:
                 continue
 
-            # Reject Spot unless the plan says Spot
-            if "spot" in meter_lower and not is_spot:
-                continue
+            # If spot is requested, the meter name MUST contain "spot"
+            if is_spot:
+                if "spot" not in meter_lower:
+                    continue
+            else:
+                if "spot" in meter_lower:
+                    continue
 
             # OS filtering
             if is_windows:
-                # For Windows VMs, only keep Windows meters
                 if "windows" not in product_lower:
                     continue
             else:
-                # For Linux VMs, exclude Windows meters
                 if "windows" in product_lower:
                     continue
 
             filtered.append(item)
+            
+        if is_spot and not filtered:
+            print(f"[WARN] Spot pricing requested for SKU '{sku}' but no Spot meter exists. Unpriced.", file=sys.stderr)
+            return []
 
+        # Sort remaining candidates deterministically:
+        # unitOfMeasure contains "Hour", then lowest tierMinimumUnits, then meterName
+        def sort_key(i):
+            uom = i.get("unitOfMeasure", "")
+            has_hour = 0 if "hour" in uom.lower() else 1
+            min_units = float(i.get("tierMinimumUnits", 0.0))
+            m_name = i.get("meterName", "")
+            return (has_hour, min_units, m_name)
+
+        filtered.sort(key=sort_key)
         return filtered

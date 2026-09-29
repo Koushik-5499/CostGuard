@@ -29,7 +29,7 @@ def test_exit_1_over_budget():
 def test_exit_2_missing_file():
     result = run_cli("--plan", "does_not_exist.json")
     assert result.returncode == 2
-    assert b"not found" in result.stderr
+    assert b"No such file or directory" in result.stderr or b"not found" in result.stderr
 
 def test_exit_2_corrupt_json():
     plan = TEST_PLANS_DIR / "plan_e_corrupt.json"

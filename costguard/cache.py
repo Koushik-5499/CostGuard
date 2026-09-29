@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 
-# Default cache database path, overridable via env var
-DEFAULT_CACHE_PATH = os.environ.get("COSTGUARD_CACHE_PATH", "pricing_cache.db")
+# Default cache database path is now evaluated at runtime
+CACHE_TTL_SECONDS = int(os.environ.get("COSTGUARD_CACHE_TTL", 604800))
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS pricing_cache (
@@ -44,13 +44,19 @@ class PricingCache:
     """
 
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or DEFAULT_CACHE_PATH
+        if db_path is None:
+            db_path = os.environ.get(
+                "COSTGUARD_CACHE_PATH", 
+                os.path.expanduser("~/.costguard/pricing_cache.db")
+            )
+        self.db_path = db_path
         self.stats = CacheStats()
         self._conn: sqlite3.Connection | None = None
         self._init_db()
 
     def _init_db(self):
         """Initialize the database and create the table if needed."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute(CREATE_TABLE_SQL)
@@ -59,13 +65,16 @@ class PricingCache:
     def get(self, sku: str, region: str, currency: str = "USD") -> float | None:
         """Look up a cached price. Returns the rate or None on miss."""
         cursor = self._conn.execute(
-            "SELECT hourly_rate FROM pricing_cache WHERE sku = ? AND region = ? AND currency = ?",
+            "SELECT hourly_rate, cached_at FROM pricing_cache WHERE sku = ? AND region = ? AND currency = ?",
             (sku, region, currency),
         )
         row = cursor.fetchone()
         if row is not None:
-            self.stats.hits += 1
-            return row[0]
+            rate, cached_at = row
+            now = int(time.time())
+            if now - cached_at <= CACHE_TTL_SECONDS:
+                self.stats.hits += 1
+                return rate
         self.stats.misses += 1
         return None
 

@@ -58,6 +58,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Output as machine-readable JSON.",
     )
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 2 if any billable resource cannot be priced.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"costguard {__version__}",
@@ -71,15 +76,12 @@ def _read_plan(args: argparse.Namespace) -> dict:
     Returns the parsed plan dict.
     Exits with code 2 on errors.
     """
-    raw = None
+    raw_bytes = None
 
     if args.plan:
         try:
-            with open(args.plan, "r", encoding="utf-8") as f:
-                raw = f.read()
-        except FileNotFoundError:
-            print(f"Error: Plan file not found: {args.plan}", file=sys.stderr)
-            sys.exit(2)
+            with open(args.plan, "rb") as f:
+                raw_bytes = f.read()
         except OSError as e:
             print(f"Error: Cannot read plan file: {e}", file=sys.stderr)
             sys.exit(2)
@@ -93,14 +95,27 @@ def _read_plan(args: argparse.Namespace) -> dict:
             )
             sys.exit(2)
         try:
-            raw = sys.stdin.read().lstrip('\ufeff')
+            raw_bytes = sys.stdin.buffer.read()
         except Exception as e:
             print(f"Error: Cannot read stdin: {e}", file=sys.stderr)
             sys.exit(2)
 
-    if not raw or not raw.strip():
+    if not raw_bytes or not raw_bytes.strip():
         print("Error: Empty input. Provide a valid Terraform plan JSON.", file=sys.stderr)
         sys.exit(2)
+
+    if raw_bytes.startswith(b'\xff\xfe') or raw_bytes.startswith(b'\xfe\xff'):
+        try:
+            raw = raw_bytes.decode('utf-16')
+        except UnicodeDecodeError:
+            print("Error: Plan file is not valid UTF-8/UTF-16 text", file=sys.stderr)
+            sys.exit(2)
+    else:
+        try:
+            raw = raw_bytes.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            print("Error: Plan file is not valid UTF-8/UTF-16 text", file=sys.stderr)
+            sys.exit(2)
 
     try:
         plan_data = json.loads(raw)
@@ -110,6 +125,17 @@ def _read_plan(args: argparse.Namespace) -> dict:
 
     if not isinstance(plan_data, dict):
         print("Error: Plan JSON must be a JSON object.", file=sys.stderr)
+        sys.exit(2)
+
+    if "resource_changes" not in plan_data:
+        if "values" in plan_data:
+            print("Error: JSON appears to be a Terraform state file, not a plan file.", file=sys.stderr)
+        else:
+            print("Error: JSON is missing 'resource_changes' list.", file=sys.stderr)
+        sys.exit(2)
+
+    if not isinstance(plan_data["resource_changes"], list):
+        print("Error: 'resource_changes' must be a list.", file=sys.stderr)
         sys.exit(2)
 
     return plan_data
@@ -134,10 +160,15 @@ def main(argv: list[str] | None = None) -> None:
             cache.clear()
             print("Cache cleared successfully.")
             cache.close()
-            sys.exit(0)
+            # If a plan was supplied, continue, else exit
+            if not sys.stdin.isatty() or args.plan:
+                pass # continue with fresh lookups
+            else:
+                sys.exit(0)
 
         # Read and parse the plan
         plan_data = _read_plan(args)
+
 
         # Extract resource changes
         changes = extract_changes(plan_data)
@@ -151,19 +182,23 @@ def main(argv: list[str] | None = None) -> None:
         deltas = compute_deltas(changes, pricing)
         pricing_elapsed = time.monotonic() - pricing_start
 
-        # Filter out zero-delta items for cleaner output (but keep them if they exist)
-        # Actually, show all items including $0 for transparency
-        # The spec says metadata-only may be omitted OR shown with $0.00
-        # We'll show non-zero and omit zero-delta for cleaner output
-        display_deltas = [d for d in deltas if d.delta != 0]
+        # Identify unpriced items
+        unpriced_deltas = [d for d in deltas if getattr(d, 'unpriced', False)]
+        if args.strict and unpriced_deltas:
+            print("Error: Strict mode enabled and billable resources could not be priced:", file=sys.stderr)
+            for d in unpriced_deltas:
+                print(f"  - {d.address} ({d.action})", file=sys.stderr)
+            cache.close()
+            sys.exit(2)
 
-        # If all deltas are zero, still show something
-        if not display_deltas and deltas:
-            display_deltas = deltas  # Show them all with $0.00
+        # We show non-zero and unpriced items, hide metadata-only (zero delta)
+        display_deltas = [d for d in deltas if d.delta != 0 or getattr(d, 'unpriced', False)]
+        zero_deltas_hidden = sum(1 for d in deltas if d.delta == 0 and not getattr(d, 'unpriced', False))
 
-        # Calculate net delta from ALL deltas (including zero ones)
-        from decimal import Decimal
+        # Calculate net delta from ALL deltas (including zero ones) and round to 2 decimals
+        from decimal import Decimal, ROUND_HALF_UP
         net_delta = sum(d.delta for d in deltas) if deltas else Decimal("0")
+        net_delta = net_delta.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         # Evaluate policy
         passed, verdict_message = evaluate_policy(net_delta, args.max_increase)
@@ -178,6 +213,8 @@ def main(argv: list[str] | None = None) -> None:
             currency=args.currency,
             use_markdown=args.markdown,
             use_json=args.json,
+            unpriced_count=len(unpriced_deltas) if not args.strict else 0,
+            zero_deltas_hidden=zero_deltas_hidden,
         )
 
         # Print pricing timing to stderr (diagnostic)

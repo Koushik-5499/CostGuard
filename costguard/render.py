@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json as json_mod
 import sys
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from costguard.cache import CacheStats
 from costguard.delta import CostDelta
@@ -48,6 +48,8 @@ def render_report(
     currency: str = "USD",
     use_markdown: bool = False,
     use_json: bool = False,
+    unpriced_count: int = 0,
+    zero_deltas_hidden: int = 0,
 ):
     """Render the cost impact report to stdout.
 
@@ -57,23 +59,23 @@ def render_report(
     - --json: Machine-readable JSON output
     """
     if use_json:
-        _render_json(deltas, cache_stats, max_increase, passed, verdict_message, currency)
+        _render_json(deltas, cache_stats, max_increase, passed, verdict_message, currency, unpriced_count, zero_deltas_hidden)
         return
 
     if use_markdown:
-        _render_markdown(deltas, cache_stats, max_increase, passed, verdict_message, currency)
+        _render_markdown(deltas, cache_stats, max_increase, passed, verdict_message, currency, unpriced_count, zero_deltas_hidden)
         return
 
     # Default: use rich if TTY, fallback to plain text
     is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
     if is_tty:
         try:
-            _render_rich(deltas, cache_stats, max_increase, passed, verdict_message, currency)
+            _render_rich(deltas, cache_stats, max_increase, passed, verdict_message, currency, unpriced_count, zero_deltas_hidden)
             return
         except ImportError:
             pass
 
-    _render_plain(deltas, cache_stats, max_increase, passed, verdict_message, currency)
+    _render_plain(deltas, cache_stats, max_increase, passed, verdict_message, currency, unpriced_count, zero_deltas_hidden)
 
 
 def _render_rich(
@@ -83,6 +85,8 @@ def _render_rich(
     passed: bool,
     verdict_message: str,
     currency: str,
+    unpriced_count: int,
+    zero_deltas_hidden: int,
 ):
     """Render using the rich library for colored terminal output."""
     from rich.console import Console
@@ -113,23 +117,36 @@ def _render_rich(
     table.add_column(f"Delta ({_sym(currency)}/mo)", justify="right", min_width=12)
 
     for d in deltas:
-        delta_style = "green" if d.delta < 0 else ("red" if d.delta > 0 else "dim")
+        is_unpriced = getattr(d, 'unpriced', False)
+        if is_unpriced:
+            old_str = "n/a"
+            new_str = "n/a"
+            delta_str = "n/a"
+            delta_style = "dim"
+            sku_label = f"[UNPRICED] {d.sku_label}"
+        else:
+            old_str = _fmt_money(d.old_monthly, currency)
+            new_str = _fmt_money(d.new_monthly, currency)
+            delta_str = _fmt_delta(d.delta, currency)
+            delta_style = "green" if d.delta < 0 else ("red" if d.delta > 0 else "dim")
+            sku_label = d.sku_label
+
         table.add_row(
             d.address,
             d.action,
             d.region,
-            d.sku_label,
-            _fmt_money(d.old_monthly, currency),
-            _fmt_money(d.new_monthly, currency),
-            Text(_fmt_delta(d.delta, currency), style=delta_style),
+            sku_label,
+            old_str,
+            new_str,
+            Text(delta_str, style=delta_style),
         )
 
     console.print(table)
 
     # Financial summary
-    total_old = sum(d.old_monthly for d in deltas)
-    total_new = sum(d.new_monthly for d in deltas)
-    net_delta = sum(d.delta for d in deltas)
+    total_old = sum(d.old_monthly.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
+    total_new = sum(d.new_monthly.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
+    net_delta = sum(d.delta.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
 
     console.print()
     console.print("[bold]FINANCIAL SUMMARY:[/bold]")
@@ -158,6 +175,11 @@ def _render_rich(
             "Deployment blocked.[/bold red]"
         )
 
+    if zero_deltas_hidden > 0:
+        console.print(f"[dim]{zero_deltas_hidden} metadata-only change(s) with $0.00 impact hidden[/dim]")
+    if unpriced_count > 0:
+        console.print(f"[bold yellow]{unpriced_count} resource(s) UNPRICED, total may be understated[/bold yellow]")
+
     console.print()
 
 
@@ -168,6 +190,8 @@ def _render_plain(
     passed: bool,
     verdict_message: str,
     currency: str,
+    unpriced_count: int,
+    zero_deltas_hidden: int,
 ):
     """Render plain text output (for piped output or when rich is unavailable)."""
     sep = "=" * 100
@@ -184,10 +208,22 @@ def _render_plain(
     print(dash)
 
     for d in deltas:
+        is_unpriced = getattr(d, 'unpriced', False)
+        if is_unpriced:
+            old_str = "n/a"
+            new_str = "n/a"
+            delta_str = "n/a"
+            sku_label = f"[UNPRICED] {d.sku_label}"
+        else:
+            old_str = _fmt_money(d.old_monthly, currency)
+            new_str = _fmt_money(d.new_monthly, currency)
+            delta_str = _fmt_delta(d.delta, currency)
+            sku_label = d.sku_label
+
         print(
             f"{d.address:<38s} {d.action:<8s} {d.region:<10s} "
-            f"{d.sku_label:<25s} {_fmt_money(d.old_monthly, currency):>10s} "
-            f"{_fmt_money(d.new_monthly, currency):>10s} {_fmt_delta(d.delta, currency):>12s}"
+            f"{sku_label:<25s} {old_str:>10s} "
+            f"{new_str:>10s} {delta_str:>12s}"
         )
 
     print(dash)
@@ -212,6 +248,11 @@ def _render_plain(
         print()
         print("[CIRCUIT BREAKER] CostGuard: Budget threshold breached. Deployment blocked.")
 
+    if zero_deltas_hidden > 0:
+        print(f"{zero_deltas_hidden} metadata-only change(s) with $0.00 impact hidden")
+    if unpriced_count > 0:
+        print(f"{unpriced_count} resource(s) UNPRICED, total may be understated")
+
     print(sep)
 
 
@@ -222,12 +263,14 @@ def _render_markdown(
     passed: bool,
     verdict_message: str,
     currency: str,
+    unpriced_count: int,
+    zero_deltas_hidden: int,
 ):
     """Render GitHub PR comment formatted markdown output."""
     sym = _sym(currency)
-    total_old = sum(d.old_monthly for d in deltas)
-    total_new = sum(d.new_monthly for d in deltas)
-    net_delta = sum(d.delta for d in deltas)
+    total_old = sum(d.old_monthly.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
+    total_new = sum(d.new_monthly.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
+    net_delta = sum(d.delta.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
 
     emoji = "✅" if passed else "🚨"
     print(f"## {emoji} CostGuard: Azure Infrastructure Cost Impact Report")
@@ -263,6 +306,10 @@ def _render_markdown(
         print()
         print("> 🚨 **[CIRCUIT BREAKER]** CostGuard: Budget threshold breached. Deployment blocked.")
 
+    if zero_deltas_hidden > 0:
+        print(f"> 💡 _{zero_deltas_hidden} metadata-only change(s) with $0.00 impact hidden_")
+    if unpriced_count > 0:
+        print(f"> ⚠️ **{unpriced_count} resource(s) UNPRICED, total may be understated**")
 
 def _render_json(
     deltas: list[CostDelta],
@@ -271,11 +318,13 @@ def _render_json(
     passed: bool,
     verdict_message: str,
     currency: str,
+    unpriced_count: int,
+    zero_deltas_hidden: int,
 ):
     """Render machine-readable JSON output."""
-    total_old = sum(d.old_monthly for d in deltas)
-    total_new = sum(d.new_monthly for d in deltas)
-    net_delta = sum(d.delta for d in deltas)
+    total_old = sum(d.old_monthly.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
+    total_new = sum(d.new_monthly.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
+    net_delta = sum(d.delta.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for d in deltas if not getattr(d, 'unpriced', False))
 
     output = {
         "currency": currency,
@@ -306,5 +355,7 @@ def _render_json(
             "passed": passed,
             "verdict": verdict_message,
         },
+        "unpriced_count": unpriced_count,
+        "zero_deltas_hidden": zero_deltas_hidden,
     }
     print(json_mod.dumps(output, indent=2))

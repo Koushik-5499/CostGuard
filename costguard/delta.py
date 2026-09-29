@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+import sys
 from costguard.extractor import ResourceChange, VM_TYPES, DISK_TYPES
 from costguard.pricing import PriceResult, PricingClient
 
@@ -19,6 +20,7 @@ class CostDelta:
     new_monthly: Decimal  # Monthly cost after
     delta: Decimal        # new - old
     tags: dict[str, str]
+    unpriced: bool = False
 
 
 def compute_action_label(actions: list[str]) -> str:
@@ -85,13 +87,27 @@ def _compute_vm_delta(
     sku_label_parts = []
     region = change.region_after or change.region_before or "unknown"
 
+    if action not in ["CREATE", "DELETE", "UPDATE", "REPLACE"]:
+        print(f"[WARN] Resource {change.address} skipped: unsupported action {change.actions}", file=sys.stderr)
+        return None
+
     if action == "CREATE":
         price = _get_vm_price(
             pricing, change.sku_after, change.region_after,
             change.is_windows, change.is_spot
         )
         if price is None:
-            return None
+            return CostDelta(
+                address=change.address,
+                action=action,
+                region=region,
+                sku_label=change.sku_after or "?",
+                old_monthly=Decimal("0"),
+                new_monthly=Decimal("0"),
+                delta=Decimal("0"),
+                tags=change.tags_after,
+                unpriced=True
+            )
         new_monthly = price.monthly_cost
         sku_label_parts.append(change.sku_after or "?")
 
@@ -101,7 +117,17 @@ def _compute_vm_delta(
             change.is_windows, change.is_spot
         )
         if price is None:
-            return None
+            return CostDelta(
+                address=change.address,
+                action=action,
+                region=region,
+                sku_label=change.sku_before or "?",
+                old_monthly=Decimal("0"),
+                new_monthly=Decimal("0"),
+                delta=Decimal("0"),
+                tags=change.tags_after,
+                unpriced=True
+            )
         old_monthly = price.monthly_cost
         sku_label_parts.append(change.sku_before or "?")
 
@@ -114,9 +140,20 @@ def _compute_vm_delta(
                 pricing, change.sku_before, change.region_before or change.region_after,
                 change.is_windows, change.is_spot
             )
-            if price_before:
-                old_monthly = price_before.monthly_cost
-                new_monthly = price_before.monthly_cost
+            if price_before is None:
+                return CostDelta(
+                    address=change.address,
+                    action=action,
+                    region=region,
+                    sku_label=" ".join(sku_label_parts),
+                    old_monthly=Decimal("0"),
+                    new_monthly=Decimal("0"),
+                    delta=Decimal("0"),
+                    tags=change.tags_after,
+                    unpriced=True
+                )
+            old_monthly = price_before.monthly_cost
+            new_monthly = price_before.monthly_cost
             return CostDelta(
                 address=change.address,
                 action=action,
@@ -137,6 +174,18 @@ def _compute_vm_delta(
             pricing, change.sku_after, change.region_after or change.region_before,
             change.is_windows, change.is_spot
         )
+        if price_before is None or price_after is None:
+            return CostDelta(
+                address=change.address,
+                action=action,
+                region=region,
+                sku_label=f"{change.sku_before or '?'} -> {change.sku_after or '?'}",
+                old_monthly=Decimal("0"),
+                new_monthly=Decimal("0"),
+                delta=Decimal("0"),
+                tags=change.tags_after,
+                unpriced=True
+            )
         if price_before:
             old_monthly = price_before.monthly_cost
         if price_after:
@@ -152,6 +201,18 @@ def _compute_vm_delta(
             pricing, change.sku_after, change.region_after or change.region_before,
             change.is_windows, change.is_spot
         )
+        if price_before is None or price_after is None:
+            return CostDelta(
+                address=change.address,
+                action=action,
+                region=region,
+                sku_label=f"{change.sku_before or '?'} -> {change.sku_after or '?'}",
+                old_monthly=Decimal("0"),
+                new_monthly=Decimal("0"),
+                delta=Decimal("0"),
+                tags=change.tags_after,
+                unpriced=True
+            )
         if price_before:
             old_monthly = price_before.monthly_cost
         if price_after:
@@ -182,16 +243,31 @@ def _compute_disk_delta(
     sku_label_parts = []
     region = change.region_after or change.region_before or "unknown"
 
+    if action not in ["CREATE", "DELETE", "UPDATE", "REPLACE"]:
+        print(f"[WARN] Resource {change.address} skipped: unsupported action {change.actions}", file=sys.stderr)
+        return None
+
     if action == "CREATE":
         if change.disk_storage_type_after and change.disk_size_gb_after is not None:
             price = pricing.get_disk_price(
                 change.disk_storage_type_after, change.disk_size_gb_after, region
             )
             if price is None:
-                return None
+                return CostDelta(
+                    address=change.address,
+                    action=action,
+                    region=region,
+                    sku_label="?",
+                    old_monthly=Decimal("0"),
+                    new_monthly=Decimal("0"),
+                    delta=Decimal("0"),
+                    tags=change.tags_after,
+                    unpriced=True
+                )
             new_monthly = price.monthly_cost
             sku_label_parts.append(price.sku_label)
         else:
+            print(f"[WARN] Resource {change.address} skipped: missing disk size or type", file=sys.stderr)
             return None
 
     elif action == "DELETE":
@@ -201,10 +277,21 @@ def _compute_disk_delta(
                 change.region_before or region
             )
             if price is None:
-                return None
+                return CostDelta(
+                    address=change.address,
+                    action=action,
+                    region=region,
+                    sku_label="?",
+                    old_monthly=Decimal("0"),
+                    new_monthly=Decimal("0"),
+                    delta=Decimal("0"),
+                    tags=change.tags_after,
+                    unpriced=True
+                )
             old_monthly = price.monthly_cost
             sku_label_parts.append(price.sku_label)
         else:
+            print(f"[WARN] Resource {change.address} skipped: missing disk size or type", file=sys.stderr)
             return None
 
     elif action == "UPDATE":
@@ -218,10 +305,33 @@ def _compute_disk_delta(
                 price = pricing.get_disk_price(
                     change.disk_storage_type_after, change.disk_size_gb_after, region
                 )
-                if price:
-                    old_monthly = price.monthly_cost
-                    new_monthly = price.monthly_cost
-                    sku_label_parts.append(price.sku_label)
+                if price is None:
+                    return CostDelta(
+                        address=change.address,
+                        action=action,
+                        region=region,
+                        sku_label="?",
+                        old_monthly=Decimal("0"),
+                        new_monthly=Decimal("0"),
+                        delta=Decimal("0"),
+                        tags=change.tags_after,
+                        unpriced=True
+                    )
+                old_monthly = price.monthly_cost
+                new_monthly = price.monthly_cost
+                sku_label_parts.append(price.sku_label)
+            else:
+                return CostDelta(
+                    address=change.address,
+                    action=action,
+                    region=region,
+                    sku_label="?",
+                    old_monthly=Decimal("0"),
+                    new_monthly=Decimal("0"),
+                    delta=Decimal("0"),
+                    tags=change.tags_after,
+                    unpriced=True
+                )
             return CostDelta(
                 address=change.address,
                 action=action,
@@ -239,15 +349,32 @@ def _compute_disk_delta(
                 change.disk_storage_type_before, change.disk_size_gb_before,
                 change.region_before or region
             )
-            if price_before:
-                old_monthly = price_before.monthly_cost
+        else:
+            price_before = None
+
         if change.disk_storage_type_after and change.disk_size_gb_after is not None:
             price_after = pricing.get_disk_price(
                 change.disk_storage_type_after, change.disk_size_gb_after, region
             )
-            if price_after:
-                new_monthly = price_after.monthly_cost
-                sku_label_parts.append(price_after.sku_label)
+        else:
+            price_after = None
+
+        if price_before is None or price_after is None:
+            return CostDelta(
+                address=change.address,
+                action=action,
+                region=region,
+                sku_label="?",
+                old_monthly=Decimal("0"),
+                new_monthly=Decimal("0"),
+                delta=Decimal("0"),
+                tags=change.tags_after,
+                unpriced=True
+            )
+        
+        old_monthly = price_before.monthly_cost
+        new_monthly = price_after.monthly_cost
+        sku_label_parts.append(price_after.sku_label)
 
     elif action == "REPLACE":
         if change.disk_storage_type_before and change.disk_size_gb_before is not None:
@@ -255,15 +382,32 @@ def _compute_disk_delta(
                 change.disk_storage_type_before, change.disk_size_gb_before,
                 change.region_before or region
             )
-            if price_before:
-                old_monthly = price_before.monthly_cost
+        else:
+            price_before = None
+            
         if change.disk_storage_type_after and change.disk_size_gb_after is not None:
             price_after = pricing.get_disk_price(
                 change.disk_storage_type_after, change.disk_size_gb_after, region
             )
-            if price_after:
-                new_monthly = price_after.monthly_cost
-                sku_label_parts.append(price_after.sku_label)
+        else:
+            price_after = None
+
+        if price_before is None or price_after is None:
+            return CostDelta(
+                address=change.address,
+                action=action,
+                region=region,
+                sku_label="?",
+                old_monthly=Decimal("0"),
+                new_monthly=Decimal("0"),
+                delta=Decimal("0"),
+                tags=change.tags_after,
+                unpriced=True
+            )
+        
+        old_monthly = price_before.monthly_cost
+        new_monthly = price_after.monthly_cost
+        sku_label_parts.append(price_after.sku_label)
 
     delta = new_monthly - old_monthly
     sku_label = " ".join(sku_label_parts) if sku_label_parts else "?"

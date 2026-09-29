@@ -12,8 +12,8 @@ CostGuard is a Python CLI designed to intercept Terraform plan JSON files and ca
 
 | Feature | Implementation Strategy |
 |:---|:---|
-| **Pricing Engine** | Live query via `pricing.py` to `https://prices.azure.com/api/retail/prices` using precise OData `$filter` syntax. Pagination is handled with a `while url:` loop via `NextPageLink`. Request timeout set to 10s securely. |
-| **Caching Strategy** | Local `pricing_cache.db` (SQLite). Schema follows `(sku, region, currency)` PRIMARY KEY, tracking `hourly_rate` (also holds flat rates for monthly disks) and `cached_at`. |
+| **Pricing Engine** | Live query via `pricing.py` to `https://prices.azure.com/api/retail/prices` using precise OData `$filter` syntax. Handles HTTP 429 retries with exponential backoff and timeouts. |
+| **Caching Strategy** | Local `pricing_cache.db` (SQLite) mapped to `~/.costguard/pricing_cache.db`. Schema follows `(sku, region, currency)` PRIMARY KEY, tracking `hourly_rate` and `cached_at` with a 7-day TTL cache invalidation. |
 | **Spot & Low Priority**| `_filter_vm_items()` parses returned payloads. "Low priority" is discarded entirely. "Spot" is filtered out unless `priority="Spot"` is explicitly requested. |
 | **OS Meter Filtering** | Linux VM requests natively exclude meter products containing the string "Windows". |
 | **Monthly math** | VM rates are pulled hourly, multiplied by `730` dynamically in `delta.py`. Managed disks natively fetch `1/Month` prices; the engine maps `is_monthly=True` and ignores the 730 multiplier. |
@@ -47,7 +47,6 @@ POLICY VERDICT:
   Budget Threshold: +$50.00/mo
   Status: PASSED (Within budget allowance)
 ====================================================================================================
-exit=0
 ```
 **Exit code:** `0`
 
@@ -58,7 +57,7 @@ Get-Content test-plans/plan_b_upgrade_delete.json -Raw | costguard --max-increas
 ```
 **Actual output:**
 ```text
-(Pricing completed in 2.36s)
+(Pricing completed in 0ms)
 ====================================================================================================
 COSTGUARD: Azure Infrastructure Cost Impact Report
 ====================================================================================================
@@ -70,7 +69,7 @@ azurerm_linux_virtual_machine.old      DELETE   eastus     Standard_B1s         
 FINANCIAL SUMMARY:
   Prior Monthly Total: $37.96/mo
   Projected Monthly Total: $70.08/mo
-  Net Monthly Impact: +$32.12/mo   [Cache: 1 hits, 2 API lookups]
+  Net Monthly Impact: +$32.12/mo   [Cache: 2 hits, 0 API lookups]
 ----------------------------------------------------------------------------------------------------
 POLICY VERDICT:
   Budget Threshold: +$25.00/mo
@@ -103,6 +102,8 @@ FINANCIAL SUMMARY:
 POLICY VERDICT:
   Budget Threshold: +$10.00/mo
   Status: PASSED (Within budget allowance)
+
+3 metadata-only change(s) with $0.00 impact hidden
 ====================================================================================================
 ```
 **Exit code:** `0`
@@ -115,6 +116,19 @@ costguard --plan test-plans/plan_e_corrupt.json
 **Actual output:**
 ```text
 Error: Invalid JSON input: Expecting ',' delimiter: line 10 column 7 (char 248)
+```
+**Exit code:** `2`
+
+
+### Plan D (Unpriced / Strict Mode)
+**Command:**
+```powershell
+costguard --plan test-plans/plan_d_unpriced.json --strict
+```
+**Actual output:**
+```text
+Error: Strict mode enabled and billable resources could not be priced:
+  - azurerm_windows_virtual_machine.fake (CREATE)
 ```
 **Exit code:** `2`
 
