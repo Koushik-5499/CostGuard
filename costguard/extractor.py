@@ -91,9 +91,22 @@ def _is_spot_vm(config: dict[str, Any] | None) -> bool:
     return False
 
 
-def _is_windows_type(resource_type: str) -> bool:
+def _is_windows_type(resource_type: str, config: dict[str, Any] | None = None) -> bool:
     """Determine if the resource type implies a Windows VM."""
-    return resource_type == "azurerm_windows_virtual_machine"
+    if resource_type == "azurerm_windows_virtual_machine":
+        return True
+    if resource_type == "azurerm_virtual_machine" and config:
+        # Check legacy config for Windows indicators
+        if "os_profile_windows_config" in config and config["os_profile_windows_config"]:
+            return True
+        os_disk = config.get("storage_os_disk")
+        if isinstance(os_disk, list) and len(os_disk) > 0:
+            if os_disk[0].get("os_type", "").lower() == "windows":
+                return True
+        elif isinstance(os_disk, dict):
+            if os_disk.get("os_type", "").lower() == "windows":
+                return True
+    return False
 
 
 def _safe_get(d: dict | None, key: str, default=None):
@@ -199,7 +212,8 @@ def _extract_vm_change(
     region_before = _get_location(before) if before else None
     region_after = _get_location(after) if after else None
 
-    is_windows = _is_windows_type(resource_type)
+    # Check for Windows - use after config if available, otherwise before
+    is_windows = _is_windows_type(resource_type, after if after else before)
     is_spot = _is_spot_vm(after) if after else _is_spot_vm(before)
 
     return ResourceChange(

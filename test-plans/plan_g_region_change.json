@@ -1,0 +1,21 @@
+{
+  "format_version": "1.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_linux_virtual_machine.app",
+      "type": "azurerm_linux_virtual_machine",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "location": "eastus",
+          "size": "Standard_B1s"
+        },
+        "after": {
+          "location": "westus",
+          "size": "Standard_B1s"
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

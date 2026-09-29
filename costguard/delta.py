@@ -132,9 +132,11 @@ def _compute_vm_delta(
         sku_label_parts.append(change.sku_before or "?")
 
     elif action == "UPDATE":
-        # Check if this is a metadata-only update (same SKU)
-        if change.sku_before == change.sku_after:
-            # Same SKU — $0.00 delta (tags/metadata change)
+        # Check if this is a metadata-only update (same SKU and same region)
+        same_sku = change.sku_before == change.sku_after
+        same_region = change.region_before == change.region_after
+        if same_sku and (same_region or change.region_before is None or change.region_after is None):
+            # Same SKU and Region — $0.00 delta (tags/metadata change)
             sku_label_parts.append(change.sku_after or change.sku_before or "?")
             price_before = _get_vm_price(
                 pricing, change.sku_before, change.region_before or change.region_after,
@@ -296,9 +298,11 @@ def _compute_disk_delta(
 
     elif action == "UPDATE":
         # Check for metadata-only update
+        same_region = change.region_before == change.region_after
         same_config = (
             change.disk_storage_type_before == change.disk_storage_type_after
             and change.disk_size_gb_before == change.disk_size_gb_after
+            and (same_region or change.region_before is None or change.region_after is None)
         )
         if same_config:
             if change.disk_storage_type_after and change.disk_size_gb_after is not None:

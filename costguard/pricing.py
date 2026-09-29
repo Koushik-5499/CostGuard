@@ -93,9 +93,10 @@ class PricingClient:
         try:
             items = self._query_api(filter_str)
         except Exception as e:
-            print(f"[WARN] Resource '{sku}' skipped: {e}", file=sys.stderr)
-            self._session_cache[cache_key] = None
-            return None
+            print(f"[WARN] Network unavailable; defaulting SKU '{sku}' to $0.00.", file=sys.stderr)
+            result = PriceResult(rate=Decimal("0"), is_monthly=False, sku_label=sku)
+            self._session_cache[cache_key] = result
+            return result
 
         # Filter items
         matched = self._filter_vm_items(items, sku, is_windows=is_windows, is_spot=is_spot)
@@ -188,9 +189,10 @@ class PricingClient:
         try:
             items = self._query_api(filter_str)
         except Exception as e:
-            print(f"[WARN] Resource '{tier}' skipped: {e}", file=sys.stderr)
-            self._session_cache[cache_key] = None
-            return None
+            print(f"[WARN] Network unavailable; defaulting disk '{tier}' to $0.00.", file=sys.stderr)
+            result = PriceResult(rate=Decimal("0"), is_monthly=True, sku_label=tier)
+            self._session_cache[cache_key] = result
+            return result
 
         # Find the matching tier: look for the "P10 LRS Disk" meterName pattern
         expected_meter = get_disk_meter_name(tier, redundancy)
