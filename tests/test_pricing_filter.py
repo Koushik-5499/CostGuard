@@ -25,3 +25,35 @@ def test_filter_vm_items():
     assert len(filtered_win) == 1
     assert filtered_win[0]["meterName"] == "D2s v3"
     assert filtered_win[0]["productName"] == "Virtual Machines DSv3 Series Windows"
+
+def test_pagination_and_timeout(monkeypatch):
+    import urllib.request
+    from costguard.pricing import PricingClient
+    from costguard.cache import PricingCache
+    from io import BytesIO
+
+    cache = PricingCache(":memory:")
+    client = PricingClient(cache=cache)
+
+    call_count = 0
+    def mock_urlopen(req, timeout):
+        nonlocal call_count
+        call_count += 1
+        assert timeout == 10
+        if call_count == 1:
+            return BytesIO(b'{"Items": [{"meterName": "Item1"}], "NextPageLink": "http://mock"}')
+        else:
+            return BytesIO(b'{"Items": [{"meterName": "Item2"}]}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    res = client._query_api("fake_filter")
+    assert len(res) == 2
+    assert res[0]["meterName"] == "Item1"
+    assert res[1]["meterName"] == "Item2"
+    assert call_count == 2
+
+def test_replacement_action():
+    from costguard.delta import compute_action_label
+    assert compute_action_label(["delete", "create"]) == "REPLACE"
+    assert compute_action_label(["create", "delete"]) == "REPLACE"

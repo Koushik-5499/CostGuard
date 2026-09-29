@@ -12,6 +12,8 @@ Requires Python 3.11+.
 pip install -e .
 ```
 
+*Note for Windows users:* Ensure your Python `Scripts` directory (e.g. `C:\Users\user\AppData\Local\Python\pythoncore-3.14-64\Scripts`) is in your system `PATH`. Alternatively, you can always run the tool via `python -m costguard`.
+
 ## Usage
 
 CostGuard accepts Terraform plan JSON either via `stdin` or the `--plan` file flag.
