@@ -120,6 +120,7 @@ Error: Invalid JSON input: Expecting ',' delimiter: line 10 column 7 (char 248)
 
 
 ## 5) Limitations
+- **Cache Performance Constraint (<50ms End-to-End):** The PDF explicitly requires the command to complete in under 50ms natively. While the internal pricing cache evaluation accurately executes in `0ms` (0 network lookups), the total end-to-end execution of the Python CLI on the current Windows environment averages ~280-400ms. Profiling reveals this is strictly consumed by the Windows/PowerShell process spawning and base Python runtime startup overhead (e.g. `python -c "pass"` measures ~350ms). Therefore, the strict end-to-end <50ms rule is technically **FAILED** due to OS-level Python process overhead.
 - **Tag Grouping:** Terminal tag aggregation is not implemented. Tags are extracted into the object model and `--json` structural support exists, but it remains a partial capability as visual aggregation is not supported.
 - **Disk Mappings:** Managed disk processing natively supports Premium SSD classes. It does not encompass automated logic for Standard HDD, Standard SSD, or Ultra disk tiers.
 - **Single Cloud:** The application works entirely against Azure Retail API constraints securely; multi-cloud compatibility is not integrated.
